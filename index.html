@@ -104,6 +104,8 @@ select option{background:#2c2c2e}
 .fb.on{background:rgba(55,138,221,.15);border-color:var(--b3);color:var(--b4)}
 .sbtn{width:100%;padding:16px;background:var(--acc);color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;margin-top:24px;-webkit-appearance:none}
 .sbtn:active{opacity:.8}.sbtn.b{background:var(--b3)}
+.cdtab{padding:6px 10px;border:none;border-radius:8px;background:none;color:var(--t3);font-size:12px;font-weight:600;cursor:pointer}
+.cdtab.on{background:var(--acc);color:#fff}
 .ptab{flex:1;padding:9px 4px;border:none;border-radius:10px;background:none;color:var(--t3);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
 .ptab.on{background:var(--acc);color:#fff}
 .ci2{width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-size:15px;background:#2c2c2e;color:#fff;margin-bottom:8px;-webkit-appearance:none}
@@ -443,18 +445,19 @@ function rCards(){
     return;
   }
   cl.innerHTML=cards.map(c=>{
-    const amt=exps.filter(e=>e.card===c.name&&!e.isSub).filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=ws&&d<we;}).reduce((s,e)=>s+parseFloat(e.amount),0);
+    // include subscriptions charged to this card in weekly total
+    const amt=exps.filter(e=>e.card===c.name).filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=ws&&d<we;}).reduce((s,e)=>s+parseFloat(e.amount),0);
     const ip=paid[c.id];
-    return `<div class="wc">
+    return `<div class="wc" onclick="openCardDetail('${c.id}')" style="cursor:pointer">
       <div class="wch">
         <div class="wcn">${c.name}</div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
           <button class="badge ${ip?'p':'u'}" onclick="togPaid('${c.id}')">${ip?'✓ Paid':'Mark paid'}</button>
           <button onclick="openEditCardM('${c.id}')" style="background:var(--card2);border:none;border-radius:20px;color:var(--t2);font-size:11px;font-weight:600;padding:5px 12px;cursor:pointer">Edit</button>
         </div>
       </div>
       <div class="wa ${ip?'p':''}">${fmt(amt)}</div>
-      <div class="wn">Charged this week${ip?' · Paid ✓':' · Not yet paid'}</div>
+      <div class="wn">This week${ip?' · Paid ✓':' · Not yet paid'} · <span style="color:var(--t2)">Tap for details</span></div>
     </div>`;
   }).join('');
 }
@@ -663,6 +666,62 @@ async function delL(id){
   }catch(err){console.error('delL:',err);alert('Could not delete.');}
 }
 
+// ── CARD DETAIL modal ────────────────────────────────────────────
+let cdCardId=null,cdPeriod='week';
+
+function openCardDetail(id){
+  cdCardId=id;cdPeriod='week';
+  document.querySelectorAll('.cdtab').forEach((b,i)=>b.classList.toggle('on',i===1));
+  document.getElementById('cd-period-lbl').textContent='This week';
+  renderCardDetail();
+  openM('cdm');
+}
+
+function setCdPeriod(p,btn){
+  cdPeriod=p;
+  document.querySelectorAll('.cdtab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const labels={day:'Today',week:'This week',month:'This month'};
+  document.getElementById('cd-period-lbl').textContent=labels[p];
+  renderCardDetail();
+}
+
+function renderCardDetail(){
+  const c=cards.find(x=>x.id===cdCardId);
+  if(!c)return;
+  document.getElementById('cd-title').textContent=c.name;
+
+  const now=new Date();
+  let ps,pe;
+  if(cdPeriod==='day'){
+    ps=new Date(now);ps.setHours(0,0,0,0);
+    pe=new Date(now);pe.setHours(23,59,59,999);
+  }else if(cdPeriod==='week'){
+    ps=wkStart();pe=new Date(ps);pe.setDate(pe.getDate()+7);
+  }else{
+    ps=new Date(now.getFullYear(),now.getMonth(),1);
+    pe=new Date(now.getFullYear(),now.getMonth()+1,1);
+  }
+
+  const cardExps=exps.filter(e=>e.card===c.name).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const periodExps=cardExps.filter(e=>{const d=new Date(e.date+'T12:00:00');return d>=ps&&d<pe;});
+
+  document.getElementById('cd-total').textContent=fmt(periodExps.reduce((s,e)=>s+parseFloat(e.amount),0));
+  document.getElementById('cd-alltime').textContent=fmt(cardExps.reduce((s,e)=>s+parseFloat(e.amount),0));
+
+  const list=document.getElementById('cd-list');
+  if(!periodExps.length){
+    list.innerHTML='<div class="empty" style="padding:20px;text-align:center;color:var(--t3);font-size:14px">No transactions this period</div>';
+    return;
+  }
+  list.innerHTML=periodExps.map(e=>{
+    const ci=CATS.indexOf(e.category),col=ci>=0?CCOL[ci]:'#666',bg=ci>=0?CBG[ci]:'rgba(100,100,100,.15)';
+    const ico=ICOS[e.category]||ICOS['Misc'];
+    const tag=e.isSub?`<span style="font-size:10px;background:rgba(55,138,221,.15);color:var(--b4);border-radius:6px;padding:2px 6px;margin-left:6px;font-weight:600">SUB</span>`:'';
+    return `<div class="ec"><div class="edw" style="background:${bg};color:${col}"><svg viewBox="0 0 24 24">${ico}</svg></div><div class="ei"><div class="en">${e.name}${tag}</div><div class="em">${e.date} · ${e.category}</div></div><div class="ea">${fmt(e.amount)}</div></div>`;
+  }).join('');
+}
+
 // ── Modal helpers ─────────────────────────────────────────────────
 function openM(id){document.getElementById(id).classList.add('on');document.body.style.overflow='hidden';}
 function closeM(id){document.getElementById(id).classList.remove('on');document.body.style.overflow='';}
@@ -670,5 +729,26 @@ function bgc(e,id){if(e.target.classList.contains('ov'))closeM(id);}
 
 boot();
 </script>
+<!-- CARD DETAIL MODAL -->
+<div class="ov" id="cdm" onclick="bgc(event,'cdm')">
+<div class="sheet">
+  <div class="handle"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div class="mt" style="margin-bottom:0" id="cd-title">Card</div>
+    <div style="display:flex;background:var(--card2);border-radius:10px;padding:3px;gap:3px">
+      <button class="cdtab on" onclick="setCdPeriod('day',this)">Today</button>
+      <button class="cdtab" onclick="setCdPeriod('week',this)">Week</button>
+      <button class="cdtab" onclick="setCdPeriod('month',this)">Month</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:16px">
+    <div class="sc" style="flex:1"><div class="sl" id="cd-period-lbl">Today</div><div class="sv g" id="cd-total">$0.00</div></div>
+    <div class="sc" style="flex:1"><div class="sl">All time</div><div class="sv b" id="cd-alltime">$0.00</div></div>
+  </div>
+  <div style="font-size:11px;font-weight:600;color:var(--t3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Transactions</div>
+  <div id="cd-list"></div>
+</div>
+</div>
+
 </body>
 </html>
